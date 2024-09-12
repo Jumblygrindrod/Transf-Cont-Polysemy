@@ -1,0 +1,58 @@
+!pip install transformers
+!pip install torch
+!pip install scikit-learn
+
+from transformers import BertTokenizer, BertModel
+import torch
+from scipy.spatial.distance import cosine
+
+# Load model and tokenizer
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+model = BertModel.from_pretrained('bert-base-uncased', output_hidden_states=True)
+model.eval()
+
+def read_words(file_path):
+    with open(file_path, 'r') as file:
+        return [line.strip() for line in file.readlines()]
+
+
+def get_initial_embedding(word):
+    encoded_input = tokenizer(word, return_tensors='pt')
+    with torch.no_grad():
+        outputs = model(**encoded_input)
+    # Retrieve all hidden states
+    hidden_states = outputs.hidden_states[0]
+    # Skip the first token ([CLS]) and aggregate the embeddings of the remaining tokens
+    token_embeddings = hidden_states[0, 1:-1, :]  # Skip [CLS] and [SEP]
+    # Aggregate the embeddings (e.g., by taking the mean)
+    aggregated_embedding = torch.mean(token_embeddings, dim=0)
+    return aggregated_embedding
+
+
+# 10,000 most common english words taken from: https://github.com/first20hours/google-10000-english/blob/master/google-10000-english.txt
+words = read_words('/content/google-10000-english.txt')
+
+# Note that with 10,000 words this will take a while.
+embeddings = {word: get_initial_embedding(word) for word in words}
+
+def most_similar_words(target_word, embeddings, top_n):
+    if target_word not in embeddings:
+        raise ValueError(f"The word '{target_word}' is not in the embeddings.")
+
+    target_embedding = embeddings[target_word]
+
+    # Calculate cosine similarity with other words
+    similarities = {}
+    for word, embedding in embeddings.items():
+        if word != target_word:
+            similarity = 1 - cosine(target_embedding, embedding)
+            similarities[word] = similarity
+
+    # Sort words by similarity
+    sorted_similarities = sorted(similarities.items(), key=lambda item: item[1], reverse=True)
+
+    # Return top N similar words
+    return sorted_similarities[:top_n]
+
+most_similar_words = most_similar_words("horse", embeddings, 10)
+print(most_similar_words)
